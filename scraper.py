@@ -7,6 +7,8 @@ from random import randint
 import warnings
 import json
 from loguru import logger
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from configs.headers_cookies import headers, cookies
 
@@ -58,6 +60,19 @@ class JobScraper:
             'http': self.http,
             'https': self.https
         }
+
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=1,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "POST"],
+            raise_on_status=False
+        )
+
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
         return session
 
     def change_tor_ip(self):
@@ -71,53 +86,58 @@ class JobScraper:
         all_pages = []
 
         for i in range(start_page, end_page):
-            base_url = self.jobinja_base_url+f"jobs/latest-job-post-%D8%A7%D8%B3%D8%AA%D8%AE%D8%AF%D8%A7%D9%85%DB%8C-%D8%AC%D8%AF%DB%8C%D8%AF?&sort_by=published_at_desc&page={i}"
+            base_url = str(self.jobinja_base_url)+f"jobs/latest-job-post-%D8%A7%D8%B3%D8%AA%D8%AE%D8%AF%D8%A7%D9%85%DB%8C-%D8%AC%D8%AF%DB%8C%D8%AF?&sort_by=published_at_desc&page={i}"
 
-            res = session.get(base_url, cookies=cookies, headers=headers, timeout=5)
-
-            print(f"Status Code at page {i}: " + str(res.status_code))
-
-            if res.status_code == 403:
-                print("IP blocked, changing IP...")
-                self.change_tor_ip()
+            try:
                 res = session.get(base_url, cookies=cookies, headers=headers)
+                print(f"Status Code at page {i}: " + str(res.status_code))
                 time.sleep(randint(self.start_sleep, self.end_sleep))
 
-            soup = BeautifulSoup(res.text, 'html.parser')
+                if res.status_code == 403:
+                    print("IP blocked, changing IP...")
+                    self.change_tor_ip()
+                    res = session.get(base_url, cookies=cookies, headers=headers)
+                    time.sleep(randint(self.start_sleep, self.end_sleep))
 
-            jobs = soup.select(self.jobs_titles_tags)
-            date = soup.select(self.jobs_titles_created_tags)
-            location = soup.select(self.company_location_tags)
+                soup = BeautifulSoup(res.text, 'html.parser')
 
-            list_all = []
+                jobs = soup.select(self.jobs_titles_tags)
+                date = soup.select(self.jobs_titles_created_tags)
+                location = soup.select(self.company_location_tags)
 
-            for i in range(len(jobs)):
-                response = {"status_code": res.status_code,
-                            "job_title": None,
-                            "company_name": None,
-                            "location": None,
-                            "cooperation_type": None,
-                            "job_category": None,
-                            "salary": None,
-                            "date": None,
-                            "url": None}
+                list_all = []
 
-                response['job_title'] = jobs[i].get_text(strip=True) if jobs[i] else "Error"
-                response['url'] = jobs[i]['href']
-                response['date'] = date[i].get_text(strip=True) if date[i] else "Error"
-                response['location'] = location[i].get_text(strip=True) if location[i] else "Error"
+                for i in range(len(jobs)):
+                    response = {"status_code": res.status_code,
+                                "job_title": None,
+                                "company_name": None,
+                                "location": None,
+                                "cooperation_type": None,
+                                "job_category": None,
+                                "salary": None,
+                                "date": None,
+                                "url": None}
 
-                res2 = session.get(response['url'], cookies=cookies, headers=headers)
-                time.sleep(randint(3, 7))
+                    response['job_title'] = jobs[i].get_text(strip=True) if jobs[i] else "Error"
+                    response['url'] = jobs[i]['href']
+                    response['date'] = date[i].get_text(strip=True) if date[i] else "Error"
+                    response['location'] = location[i].get_text(strip=True) if location[i] else "Error"
 
-                soup2 = BeautifulSoup(res2.text, 'html.parser')
-                response['company_name'] = soup2.select_one(self.company_name_tags).get_text(strip=True) if soup2.select_one(self.company_name_tags) else "Error"
-                response['job_category'] = soup2.select_one(self.job_category_tags).get_text(strip=True) if soup2.select_one(self.job_category_tags) else "Error"
-                response['cooperation_type'] = soup2.select_one(self.cooperation_type_tags).get_text(strip=True) if soup2.select_one(self.cooperation_type_tags) else "Error"
-                response['salary'] = soup2.select_one(self.salary_tags).get_text(strip=True) if soup2.select_one(self.salary_tags) else "Error"
-                list_all.append(response)
+                    res2 = session.get(response['url'], cookies=cookies, headers=headers)
+                    time.sleep(randint(3, 7))
 
-            all_pages.append(list_all)
-            time.sleep(60)
+                    soup2 = BeautifulSoup(res2.text, 'html.parser')
+                    response['company_name'] = soup2.select_one(self.company_name_tags).get_text(strip=True) if soup2.select_one(self.company_name_tags) else "Error"
+                    response['job_category'] = soup2.select_one(self.job_category_tags).get_text(strip=True) if soup2.select_one(self.job_category_tags) else "Error"
+                    response['cooperation_type'] = soup2.select_one(self.cooperation_type_tags).get_text(strip=True) if soup2.select_one(self.cooperation_type_tags) else "Error"
+                    response['salary'] = soup2.select_one(self.salary_tags).get_text(strip=True) if soup2.select_one(self.salary_tags) else "Error"
+                    list_all.append(response)
+
+                all_pages.append(list_all)
+                time.sleep(60)
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error fetching page {i}: {e}")
+
         logger.info("Scraping finished!")
         return all_pages
