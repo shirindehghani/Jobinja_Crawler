@@ -1,0 +1,15 @@
+{
+    "http":"socks5h://127.0.0.1:9050",
+    "https":"socks5h://127.0.0.1:9050",
+    "port":9051,
+    "jobinja_base_url":"https://jobinja.ir/",
+    "start_sleep":3,
+    "end_sleep":7,
+    "jobs_titles_tags":".c-jobListView__titleLink",
+    "jobs_titles_created_tags":".c-jobListView__passedDays",
+    "company_location_tags":"li.c-jobListView__metaItem i.c-icon--place + span",
+    "company_name_tags":"h2.c-companyHeader__name",
+    "job_category_tags":"li.c-infoBox__item:has(h4.c-infoBox__itemTitle:contains('دسته‌بندی شغلی')) span.black").get_text(strip=True) if soup2.select_one("li.c-infoBox__item:has(h4.c-infoBox__itemTitle:contains('دسته‌بندی شغلی')) span.black",
+    "cooperation_type_tags":"li.c-infoBox__item:has(h4.c-infoBox__itemTitle:contains('نوع همکاری')) span.black").get_text(strip=True) if soup2.select_one("li.c-infoBox__item:has(h4.c-infoBox__itemTitle:contains('نوع همکاری')) span.black",
+    "salary_tags":"li.c-infoBox__item:has(h4.c-infoBox__itemTitle:contains('حقوق')) span.black"
+}
