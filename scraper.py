@@ -28,7 +28,7 @@ class JobScraper:
         self.job_category_tags=None
         self.cooperation_type_tags=None
         self.salary_tags=None
-        self.read_config(self, config_path="./configs/configs.json")
+        self.read_config(config_path="./configs/configs.json")
     
     def read_config(self, config_path):
         try:
@@ -44,8 +44,8 @@ class JobScraper:
             self.jobinja_base_url=my_config['jobinja_base_url']
             self.start_sleep=my_config['start_sleep']
             self.end_sleep=my_config['end_sleep']
-            self.jobs_titles_tags=my_config['job_titles_tags']
-            self.jobs_titles_created_tags=my_config['job_titles_created_tags']
+            self.jobs_titles_tags=my_config['jobs_titles_tags']
+            self.jobs_titles_created_tags=my_config['jobs_titles_created_tags']
             self.company_location_tags=my_config['company_location_tags']
             self.company_name_tags=my_config['company_name_tags']
             self.job_category_tags=my_config['job_category_tags']
