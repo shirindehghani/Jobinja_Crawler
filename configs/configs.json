@@ -12,7 +12,7 @@
     "job_category_tags":"li.c-infoBox__item:has(h4.c-infoBox__itemTitle:contains('دسته‌بندی شغلی')) span.black",
     "cooperation_type_tags":"li.c-infoBox__item:has(h4.c-infoBox__itemTitle:contains('نوع همکاری')) span.black",
     "salary_tags":"li.c-infoBox__item:has(h4.c-infoBox__itemTitle:contains('حقوق')) span.black",
-    "headers1_save_data":"5d88383c-264f-463b-b500-b8fc9cc05d32",
+    "headers1_save_data":"",
     "headers2_save_data":"application/json",
-    "api":"https://apg.cloudware.ir/skillup/api/Karboom/Add"
+    "api":""
 }
