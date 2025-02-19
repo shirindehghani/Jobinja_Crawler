@@ -60,7 +60,7 @@ class JobScraper:
             'http': self.http,
             'https': self.https
         }
- 
+
         retry_strategy = Retry(
             total=5,
             backoff_factor=1,
