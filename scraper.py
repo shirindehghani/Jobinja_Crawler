@@ -103,6 +103,7 @@ class JobScraper:
         with ThreadPoolExecutor(max_workers=10) as executor:
             # Loop from end_page to start_page, but exclude start_page initially
             for page_num in range(end_page, start_page, -1):  # Reverse order
+                logger.info(f"We are in {page_num} page!")
                 page_url = base_url_pattern + str(page_num)
                 res = self.fetch_page(page_url)
                 if not res:
