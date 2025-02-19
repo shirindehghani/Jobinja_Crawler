@@ -3,11 +3,12 @@ from bs4 import BeautifulSoup
 from stem import Signal
 from stem.control import Controller
 import json
+import re
+from datetime import datetime, timedelta
 from loguru import logger
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
 from configs.headers_cookies import headers, cookies
 
 
@@ -15,6 +16,7 @@ class JobScraper:
     def __init__(self, config_path="./configs/configs.json"):
         self.session = None
         self.load_config(config_path)
+        self.connect_tor()
 
     def load_config(self, config_path):
         """Load configuration from JSON file."""
@@ -28,9 +30,7 @@ class JobScraper:
         self.http = my_config['http']
         self.https = my_config['https']
         self.port = my_config['port']
-        self.jobinja_base_url = my_config['jobinja_base_url']
-        self.start_sleep = my_config['start_sleep']
-        self.end_sleep = my_config['end_sleep']
+        self.base_url = my_config['jobinja_base_url']
         self.jobs_titles_tags = my_config['jobs_titles_tags']
         self.jobs_titles_created_tags = my_config['jobs_titles_created_tags']
         self.company_location_tags = my_config['company_location_tags']
@@ -40,18 +40,17 @@ class JobScraper:
         self.salary_tags = my_config['salary_tags']
 
     def connect_tor(self):
-        """Create a session using Tor proxy with retry strategy."""
+        """Create a persistent Tor session with retries."""
         self.session = requests.session()
         self.session.proxies = {'http': self.http, 'https': self.https}
 
         retry_strategy = Retry(
             total=5,
-            backoff_factor=0.5,  # Reduce sleep time
+            backoff_factor=0.3,  # Reduced backoff for speed
             status_forcelist=[500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "POST"],
             raise_on_status=False
         )
-
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
@@ -62,77 +61,113 @@ class JobScraper:
             controller.authenticate()
             controller.signal(Signal.NEWNYM)
 
-    def fetch_page(self, url):
-        """Fetch a webpage with retry and error handling."""
+    def farsi_to_english(self, num_str):
+        """Convert Farsi digits to English."""
+        return num_str.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+
+    def fetch_page(self, url, retry_once=True):
+        """Fetch a webpage, retrying if blocked."""
         try:
             response = self.session.get(url, cookies=cookies, headers=headers)
-            if response.status_code == 403:
-                logger.warning("IP blocked, changing IP...")
+            if response.status_code == 403 and retry_once:
+                logger.warning("Blocked! Changing IP and retrying...")
                 self.change_tor_ip()
-                response = self.session.get(url, cookies=cookies, headers=headers)
-            return response
+                return self.fetch_page(url, retry_once=False)
+            return response if response.status_code == 200 else None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching {url}: {e}")
             return None
 
-    def process_job_page(self, job_url):
-        """Fetch and extract job details concurrently."""
-        res2 = self.fetch_page(job_url)
-        if not res2 or res2.status_code != 200:
-            return None
-
-        soup2 = BeautifulSoup(res2.text, 'html.parser')
+    def extract_job_details(self, soup):
+        """Extract job details from a BeautifulSoup object."""
         return {
-            "company_name": soup2.select_one(self.company_name_tags).get_text(strip=True) if soup2.select_one(self.company_name_tags) else "Error",
-            "job_category": soup2.select_one(self.job_category_tags).get_text(strip=True) if soup2.select_one(self.job_category_tags) else "Error",
-            "cooperation_type": soup2.select_one(self.cooperation_type_tags).get_text(strip=True) if soup2.select_one(self.cooperation_type_tags) else "Error",
-            "salary": soup2.select_one(self.salary_tags).get_text(strip=True) if soup2.select_one(self.salary_tags) else "Error",
+            "companyName": soup.select_one(self.company_name_tags).get_text(strip=True) if soup.select_one(self.company_name_tags) else "N/A",
+            "jobCategory": soup.select_one(self.job_category_tags).get_text(strip=True) if soup.select_one(self.job_category_tags) else "N/A",
+            "cooperationType": soup.select_one(self.cooperation_type_tags).get_text(strip=True) if soup.select_one(self.cooperation_type_tags) else "N/A",
+            "salary": soup.select_one(self.salary_tags).get_text(strip=True) if soup.select_one(self.salary_tags) else "N/A",
         }
 
+    def process_job_page(self, job_url):
+        """Fetch and extract job details."""
+        res = self.fetch_page(job_url)
+        return self.extract_job_details(BeautifulSoup(res.text, 'html.parser')) if res else None
+
     def scrape_data(self, start_page=1, end_page=3):
-        """Main function to scrape job listings with concurrent fetching."""
-        if not self.session:
-            self.connect_tor()
+        """Scrape job listings starting from end_page, except for start_page."""
+        all_jobs = []
+        base_url_pattern = f"{self.base_url}jobs/latest-job-post-%D8%A7%D8%B3%D8%AA%D8%AE%D8%AF%D8%A7%D9%85%DB%8C-%D8%AC%D8%AF%DB%8C%D8%AF?&sort_by=published_at_desc&page="
 
-        all_pages = []
-        base_url_pattern = f"{self.jobinja_base_url}jobs/latest-job-post-%D8%A7%D8%B3%D8%AA%D8%AE%D8%AF%D8%A7%D9%85%DB%8C-%D8%AC%D8%AF%DB%8C%D8%AF?&sort_by=published_at_desc&page="
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            # Loop from end_page to start_page, but exclude start_page initially
+            for page_num in range(end_page, start_page, -1):  # Reverse order
+                page_url = base_url_pattern + str(page_num)
+                res = self.fetch_page(page_url)
+                if not res:
+                    continue
 
-        for i in range(start_page, end_page):
-            url = base_url_pattern + str(i)
-            res = self.fetch_page(url)
+                soup = BeautifulSoup(res.text, 'html.parser')
+                job_elements = soup.select(self.jobs_titles_tags)
+                date_elements = soup.select(self.jobs_titles_created_tags)
+                location_elements = soup.select(self.company_location_tags)
 
-            if not res or res.status_code != 200:
-                continue
+                job_urls = [job.get('href') for job in job_elements if job]
 
-            soup = BeautifulSoup(res.text, 'html.parser')
-            jobs = soup.select(self.jobs_titles_tags)
-            dates = soup.select(self.jobs_titles_created_tags)
-            locations = soup.select(self.company_location_tags)
+                # Submit tasks for fetching job details
+                future_to_url = {executor.submit(self.process_job_page, job_url): job_url for job_url in job_urls}
 
-            job_list = []
-            job_urls = [job['href'] for job in jobs if job]
-
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                future_to_job = {executor.submit(self.process_job_page, job_url): job_url for job_url in job_urls}
-
-                for future in as_completed(future_to_job):
-                    job_url = future_to_job[future]
+                for future in as_completed(future_to_url):
+                    job_url = future_to_url[future]
                     try:
                         job_details = future.result()
                         if job_details:
                             job_index = job_urls.index(job_url)
-                            job_list.append({
-                                "status_code": res.status_code,
-                                "job_title": jobs[job_index].get_text(strip=True) if jobs[job_index] else "Error",
-                                "date": dates[job_index].get_text(strip=True) if dates[job_index] else "Error",
-                                "location": locations[job_index].get_text(strip=True) if locations[job_index] else "Error",
+                            date_text = self.farsi_to_english(date_elements[job_index].get_text(strip=True)) if date_elements[job_index] else "N/A"
+                            job_date = (datetime.now().date() if "امروز" in date_text else datetime.now().date() - timedelta(days=int(re.search(r'\d+', date_text).group())) if re.search(r'\d+', date_text) else "N/A")
+
+                            all_jobs.append({
+                                "jobTitle": job_elements[job_index].get_text(strip=True) if job_elements[job_index] else "N/A",
+                                "date": str(job_date),
+                                "location": location_elements[job_index].get_text(strip=True) if location_elements[job_index] else "N/A",
                                 "url": job_url,
+                                "key": re.search(r'/jobs/([^/]+)/', job_url).group(1) if re.search(r'/jobs/([^/]+)/', job_url) else None,
                                 **job_details
                             })
                     except Exception as e:
-                        logger.error(f"Error processing job {job_url}: {e}")
+                        logger.exception(f"Error processing job {job_url}: {e}")
 
-            all_pages.append(job_list)
+            # Process start_page separately at the end
+            logger.info(f"Processing start_page: {start_page}")
+            page_url = base_url_pattern + str(start_page)
+            res = self.fetch_page(page_url)
+            if res:
+                soup = BeautifulSoup(res.text, 'html.parser')
+                job_elements = soup.select(self.jobs_titles_tags)
+                date_elements = soup.select(self.jobs_titles_created_tags)
+                location_elements = soup.select(self.company_location_tags)
 
-        logger.info("Scraping finished!")
-        return all_pages
+                job_urls = [job.get('href') for job in job_elements if job]
+
+                future_to_url = {executor.submit(self.process_job_page, job_url): job_url for job_url in job_urls}
+
+                for future in as_completed(future_to_url):
+                    job_url = future_to_url[future]
+                    try:
+                        job_details = future.result()
+                        if job_details:
+                            job_index = job_urls.index(job_url)
+                            date_text = self.farsi_to_english(date_elements[job_index].get_text(strip=True)) if date_elements[job_index] else "N/A"
+                            job_date = (datetime.now().date() if "امروز" in date_text else datetime.now().date() - timedelta(days=int(re.search(r'\d+', date_text).group())) if re.search(r'\d+', date_text) else "N/A")
+
+                            all_jobs.append({
+                                "jobTitle": job_elements[job_index].get_text(strip=True) if job_elements[job_index] else "N/A",
+                                "date": str(job_date),
+                                "location": location_elements[job_index].get_text(strip=True) if location_elements[job_index] else "N/A",
+                                "url": job_url,
+                                "key": re.search(r'/jobs/([^/]+)/', job_url).group(1) if re.search(r'/jobs/([^/]+)/', job_url) else None,
+                                **job_details
+                            })
+                    except Exception as e:
+                        logger.exception(f"Error processing job {job_url}: {e}")
+
+        logger.info("Scraping completed!")
+        return all_jobs
