@@ -49,7 +49,7 @@ class JobScraper:
 
         retry_strategy = Retry(
             total=5,
-            backoff_factor=0.3,  # Reduced backoff for speed
+            backoff_factor=0.3, 
             status_forcelist=[500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "POST"],
             raise_on_status=False
@@ -59,17 +59,14 @@ class JobScraper:
         self.session.mount("https://", adapter)
 
     def change_tor_ip(self):
-        """Change Tor IP when blocked."""
         with Controller.from_port(port=self.port) as controller:
             controller.authenticate()
             controller.signal(Signal.NEWNYM)
 
     def farsi_to_english(self, num_str):
-        """Convert Farsi digits to English."""
         return num_str.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
 
     def fetch_page(self, url, retry_once=True):
-        """Fetch a webpage, retrying if blocked."""
         try:
             response = self.session.get(url, cookies=cookies, headers=headers)
             if response.status_code == 403 and retry_once:
@@ -82,7 +79,6 @@ class JobScraper:
             return None
 
     def extract_job_details(self, soup):
-        """Extract job details from a BeautifulSoup object."""
         return {
             "companyName": soup.select_one(self.company_name_tags).get_text(strip=True) if soup.select_one(self.company_name_tags) else "N/A",
             "jobCategory": soup.select_one(self.job_category_tags).get_text(strip=True) if soup.select_one(self.job_category_tags) else "N/A",
@@ -91,18 +87,15 @@ class JobScraper:
         }
 
     def process_job_page(self, job_url):
-        """Fetch and extract job details."""
         res = self.fetch_page(job_url)
         return self.extract_job_details(BeautifulSoup(res.text, 'html.parser')) if res else None
 
     def scrape_data(self, start_page=1, end_page=3):
-        """Scrape job listings starting from end_page, except for start_page."""
         all_jobs = []
         base_url_pattern = f"{self.base_url}jobs/latest-job-post-%D8%A7%D8%B3%D8%AA%D8%AE%D8%AF%D8%A7%D9%85%DB%8C-%D8%AC%D8%AF%DB%8C%D8%AF?&sort_by=published_at_desc&page="
 
         with ThreadPoolExecutor(max_workers=10) as executor:
-            # Loop from end_page to start_page, but exclude start_page initially
-            for page_num in range(end_page, start_page, -1):  # Reverse order
+            for page_num in range(end_page, start_page, -1):
                 logger.info(f"We are in {page_num} page!")
                 page_url = base_url_pattern + str(page_num)
                 res = self.fetch_page(page_url)
@@ -116,7 +109,6 @@ class JobScraper:
 
                 job_urls = [job.get('href') for job in job_elements if job]
 
-                # Submit tasks for fetching job details
                 future_to_url = {executor.submit(self.process_job_page, job_url): job_url for job_url in job_urls}
 
                 for future in as_completed(future_to_url):
@@ -139,7 +131,6 @@ class JobScraper:
                     except Exception as e:
                         logger.exception(f"Error processing job {job_url}: {e}")
 
-            # Process start_page separately at the end
             logger.info(f"Processing start_page: {start_page}")
             page_url = base_url_pattern + str(start_page)
             res = self.fetch_page(page_url)
