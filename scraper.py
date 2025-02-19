@@ -11,6 +11,12 @@ from urllib3.util.retry import Retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from configs.headers_cookies import headers, cookies
 
+import time
+
+from APIUsage import APIUsage
+
+au=APIUsage()
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -119,17 +125,19 @@ class JobScraper:
                             job_index = job_urls.index(job_url)
                             date_text = self.farsi_to_english(date_elements[job_index].get_text(strip=True)) if date_elements[job_index] else "N/A"
                             job_date = (datetime.now().date() if "امروز" in date_text else datetime.now().date() - timedelta(days=int(re.search(r'\d+', date_text).group())) if re.search(r'\d+', date_text) else "N/A")
-
-                            all_jobs.append({
+                            final_response={
                                 "jobTitle": job_elements[job_index].get_text(strip=True) if job_elements[job_index] else "N/A",
                                 "date": str(job_date),
                                 "location": location_elements[job_index].get_text(strip=True) if location_elements[job_index] else "N/A",
                                 "url": job_url,
                                 "key": re.search(r'/jobs/([^/]+)/', job_url).group(1) if re.search(r'/jobs/([^/]+)/', job_url) else None,
-                                **job_details
-                            })
+                            }
+                            response_database = au.post_request(data=final_response)
+                            logger.debug(response_database)
+                            all_jobs.append(final_response)
                     except Exception as e:
                         logger.exception(f"Error processing job {job_url}: {e}")
+                time.sleep(30)
 
             logger.info(f"Processing start_page: {start_page}")
             page_url = base_url_pattern + str(start_page)
