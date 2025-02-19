@@ -59,7 +59,7 @@ class JobScraper:
         session.proxies = {
             'http': self.http,
             'https': self.https
-        } 
+        }
 
         retry_strategy = Retry(
             total=5,
