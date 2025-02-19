@@ -11,6 +11,9 @@ from urllib3.util.retry import Retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from configs.headers_cookies import headers, cookies
 
+import warnings
+warnings.filterwarnings("ignore")
+
 
 class JobScraper:
     def __init__(self, config_path="./configs/configs.json"):
